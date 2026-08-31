@@ -3,7 +3,9 @@ package wacloudapitest
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/itsmeabde/wacloudapi"
 )
@@ -41,6 +43,7 @@ type Server struct {
 	state         *State
 
 	customHandlers map[string]http.HandlerFunc
+	errorQueue     []*InjectedError
 }
 
 // NewServer creates and starts a new mock WhatsApp Cloud API test server.
@@ -87,10 +90,35 @@ func NewServer(opts ...Option) *Server {
 
 // ServeHTTP handles incoming HTTP requests to the mock server.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 1. Check chaos error injection queue
+	s.mu.Lock()
+	if len(s.errorQueue) > 0 {
+		errItem := s.errorQueue[0]
+		s.errorQueue = s.errorQueue[1:]
+		s.mu.Unlock()
+
+		writeAPIError(w, errItem.StatusCode, errItem.Message, errItem.Code)
+		return
+	}
+	s.mu.Unlock()
+
+	// 2. Check custom handlers
 	s.mu.RLock()
 	customHandler, exists := s.customHandlers[r.URL.Path]
 	if !exists {
 		customHandler, exists = s.customHandlers[r.Method+" "+r.URL.Path]
+	}
+	if !exists {
+		// Also check stripped path if API version prefix was present (e.g. /custom_endpoint if request was /v21.0/custom_endpoint)
+		path := strings.Trim(r.URL.Path, "/")
+		parts := strings.Split(path, "/")
+		if len(parts) > 0 && (parts[0] == s.apiVersion || (len(parts[0]) >= 2 && parts[0][0] == 'v' && unicode.IsDigit(rune(parts[0][1])))) {
+			stripped := "/" + strings.Join(parts[1:], "/")
+			customHandler, exists = s.customHandlers[stripped]
+			if !exists {
+				customHandler, exists = s.customHandlers[r.Method+" "+stripped]
+			}
+		}
 	}
 	s.mu.RUnlock()
 
@@ -139,10 +167,11 @@ func (s *Server) Client() *wacloudapi.Client {
 	)
 }
 
-// Reset resets the server's in-memory mock state and custom handlers.
+// Reset resets the server's in-memory mock state, chaos error queue, and custom handlers.
 func (s *Server) Reset() {
 	s.mu.Lock()
 	s.customHandlers = make(map[string]http.HandlerFunc)
+	s.errorQueue = nil
 	s.mu.Unlock()
 
 	s.state.Reset()
