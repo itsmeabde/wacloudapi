@@ -10,14 +10,16 @@ Package Go idiomatik, modular, aman secara konkuren (*thread-safe*), dan **zero 
 
 ## ✨ Fitur Utama
 
-- **Zero External Dependencies**: Dibangun 100% menggunakan Go Standard Library (`net/http`, `crypto/hmac`, `encoding/json`, dll.).
+- **Zero External Dependencies**: Dibangun 100% menggunakan Go Standard Library (`net/http`, `crypto/rsa`, `crypto/aes`, `crypto/hmac`, `encoding/json`, dll.).
 - **Messages API (Lengkap & Type-Safe)**: Mendukung semua jenis pesan WhatsApp (Teks, Media, Template, Interaktif Tombol & List, Lokasi, Kontak, Reaksi, Quoted Reply).
+- **Commerce & Catalog Messages**: Pengiriman pesan katalog Single Product, Multi-Product Messages (MPM), dan Order Details Messages.
+- **WhatsApp Flows Outbound & Data Endpoint (`wacloudapi/flows`)**: Pengiriman form interaktif WhatsApp Flows serta server data endpoint lengkap dengan dekripsi RSA-OAEP (SHA-256) + AES-128-GCM, enkripsi response terbalik (*inverted IV*), routing screen/action bertipe, dan *health check* (`ping`).
 - **Media API**: Upload multipart hemat memori dan download streaming (`io.Reader` / `io.ReadCloser`).
 - **Business Profile Management**: Ambil dan perbarui profil bisnis WhatsApp (About, Address, Description, Email, Websites, Vertical).
 - **Message Templates Management**: CRUD lengkap untuk template pesan WhatsApp, validasi status, dan helper cursor pagination (`NextPage`, `PrevPage`).
 - **Phone Numbers & 2FA Management**: Manajemen nomor telepon bisnis, registrasi verifikasi 2 langkah (PIN), request & verify OTP (SMS/Voice), dan deregistrasi.
 - **Message QR Codes API**: Generate, list, update, hapus QR code dengan pesan prefilled, serta helper streaming download gambar QR code (PNG / SVG).
-- **Dual Webhook Processing**: Event dispatcher siap pakai (`http.Handler`) dengan typed callbacks serta standalone validator signature HMAC-SHA256.
+- **Dual Webhook Processing**: Event dispatcher siap pakai (`http.Handler`) dengan typed callbacks (Teks, Media, Interaktif, Order, Flow Response, Status Update) serta standalone validator signature HMAC-SHA256.
 - **Resilient & Structured Errors**: Penanganan error terstruktur (`*APIError`), klasifikasi error (`IsRateLimit()`, `IsAuthError()`), serta retry exponential backoff otomatis.
 
 ---
@@ -91,9 +93,111 @@ res, err := client.Messages.SendDocument(ctx, "628123456789",
 )
 ```
 
+#### Pesan Commerce: Single Product
+```go
+res, err := client.Messages.SendSingleProduct(ctx, "628123456789", "CATALOG_ID", "PRODUCT_RETAILER_ID", "Lihat penawaran produk unggulan kami!")
+```
+
+#### Pesan Commerce: Multi-Product Message (MPM)
+```go
+res, err := client.Messages.SendMultiProduct(ctx, "628123456789", &wacloudapi.MultiProductRequest{
+	CatalogID:   "CATALOG_ID",
+	HeaderTitle: "Katalog Promo Spesial",
+	BodyText:    "Pilih produk kebutuhan Anda:",
+	Sections: []wacloudapi.ProductSection{
+		{
+			Title: "Elektronik",
+			ProductItems: []wacloudapi.ProductItem{
+				{ProductRetailerID: "prod_phone_1"},
+				{ProductRetailerID: "prod_laptop_2"},
+			},
+		},
+	},
+})
+```
+
+#### Pesan WhatsApp Flow Outbound
+```go
+res, err := client.Messages.SendFlow(ctx, "628123456789", &wacloudapi.FlowMessageRequest{
+	FlowID:             "FLOW_ID",
+	FlowToken:          "token_survey_123",
+	FlowCTA:            "Mulai Survey",
+	FlowAction:         "navigate",
+	FlowMode:           "published",
+	FlowMessageVersion: "3",
+	BodyText:           "Silakan isi survey kepuasan pelanggan melalui tombol di bawah.",
+	ActionPayload: &wacloudapi.FlowActionPayload{
+		Screen: "SURVEY_START",
+		Data: map[string]interface{}{
+			"customer_id": "cust_12345",
+		},
+	},
+})
+```
+
 ---
 
-### 2. Business Profile Management
+### 2. WhatsApp Flows Data Endpoint (`wacloudapi/flows`)
+
+Sub-package `wacloudapi/flows` menyediakan HTTP handler siap pakai untuk mengelola endpoint data dinamis WhatsApp Flows yang otomatis menangani enkripsi/dekripsi RSA-OAEP SHA-256 dan AES-128-GCM:
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+
+	"github.com/itsmeabde/wacloudapi/flows"
+)
+
+func main() {
+	// Inisialisasi handler dari RSA Private Key (PEM format)
+	pemBytes, _ := os.ReadFile("private_key.pem")
+	h, err := flows.NewHandlerFromPEM(pemBytes)
+	if err != nil {
+		log.Fatalf("Failed to create flows handler: %v", err)
+	}
+
+	// 1. Daftarkan handler per screen
+	h.HandleScreen("APPOINTMENT", func(ctx context.Context, req *flows.Request) (*flows.Response, error) {
+		log.Printf("Received screen request for %s with data: %+v", req.Screen, req.Data)
+
+		return &flows.Response{
+			Screen: "CONFIRMATION",
+			Data: map[string]interface{}{
+				"appointment_id": "APT-12345",
+				"date":           "2026-09-01",
+				"time":           "14:00",
+				"status":         "confirmed",
+			},
+		}, nil
+	})
+
+	// 2. Health check endpoint (ping dari Meta)
+	h.OnPing(func(ctx context.Context, req *flows.Request) (*flows.Response, error) {
+		return &flows.Response{
+			Data: map[string]interface{}{
+				"status": "active",
+			},
+		}, nil
+	})
+
+	// 3. Tangani error dekripsi atau pemrosesan internal
+	h.OnError(func(ctx context.Context, err error) {
+		log.Printf("[Flow Handler Error]: %v", err)
+	})
+
+	http.Handle("/flows", h)
+	http.ListenAndServe(":8080", nil)
+}
+```
+
+---
+
+### 3. Business Profile Management
 
 ```go
 // Mengambil profil bisnis
@@ -115,7 +219,7 @@ err = client.BusinessProfile.Update(ctx, &wacloudapi.UpdateBusinessProfileReques
 
 ---
 
-### 3. Message Templates Management
+### 4. Message Templates Management
 
 ```go
 // Membuat Template Baru
@@ -148,7 +252,7 @@ if list.Paging.Cursors.After != "" {
 
 ---
 
-### 4. Phone Numbers & Two-Step Verification (2FA)
+### 5. Phone Numbers & Two-Step Verification (2FA)
 
 ```go
 // List semua nomor telepon di WABA
@@ -173,7 +277,7 @@ err = client.PhoneNumbers.SetTwoStepVerification(ctx, "PHONE_NUMBER_ID", &waclou
 
 ---
 
-### 5. Message QR Codes API
+### 6. Message QR Codes API
 
 ```go
 // Buat QR Code dengan pesan pre-filled
@@ -197,7 +301,7 @@ io.Copy(out, stream)
 
 ---
 
-### 6. Media Management (Upload & Download)
+### 7. Media Management (Upload & Download)
 
 ```go
 // Upload file
@@ -217,7 +321,7 @@ defer stream.Close()
 
 ---
 
-### 7. Webhook Handling
+### 8. Webhook Handling (Inbound Messages, Orders & Flows)
 
 ```go
 package main
@@ -233,11 +337,28 @@ import (
 func main() {
 	h := webhook.NewHandler("VERIFY_TOKEN", "APP_SECRET")
 
+	// 1. Text Message Callback
 	h.OnTextMessage(func(ctx context.Context, msg webhook.Message, meta webhook.Metadata) error {
 		fmt.Printf("Pesan dari %s (%s): %s\n", meta.DisplayPhoneNumber, msg.From, msg.Text.Body)
 		return nil
 	})
 
+	// 2. Inbound Order Callback (Katalog Pesanan Masuk)
+	h.OnOrderMessage(func(ctx context.Context, order webhook.Order, msg webhook.Message, meta webhook.Metadata) error {
+		fmt.Printf("Pesanan baru dari %s, Catalog: %s, Items: %d\n", msg.From, order.CatalogID, len(order.ProductItems))
+		for _, item := range order.ProductItems {
+			fmt.Printf("  - Item: %s, Qty: %d, Harga: %d %s\n", item.ProductRetailerID, item.Quantity, item.ItemPrice, item.Currency)
+		}
+		return nil
+	})
+
+	// 3. WhatsApp Flow Response Callback (nfm_reply)
+	h.OnFlowResponseMessage(func(ctx context.Context, reply webhook.NFMReply, msg webhook.Message, meta webhook.Metadata) error {
+		fmt.Printf("Respons Flow dari %s (Name: %s): %s\n", msg.From, reply.Name, reply.ResponseJSON)
+		return nil
+	})
+
+	// 4. Status Update Callback
 	h.OnStatus(func(ctx context.Context, status webhook.Status, meta webhook.Metadata) error {
 		fmt.Printf("Status pesan %s: %s\n", status.ID, status.Status)
 		return nil
@@ -250,7 +371,7 @@ func main() {
 
 ---
 
-### 8. Penanganan Error Terstruktur
+### 9. Penanganan Error Terstruktur
 
 ```go
 res, err := client.Messages.SendText(ctx, "628123456789", "Test")
@@ -273,11 +394,13 @@ if err != nil {
 
 Contoh kode siap pakai tersedia di direktori [`examples/`](./examples):
 - [`examples/send_messages/`](./examples/send_messages) - Mengirim pesan teks, interaktif, dan template.
+- [`examples/commerce_messages/`](./examples/commerce_messages) - Mengirim pesan katalog (Single Product, Multi-Product MPM) & WhatsApp Flows.
+- [`examples/flows_endpoint/`](./examples/flows_endpoint) - Implementasi server WhatsApp Flows Data Endpoint terenkripsi (RSA/AES-GCM).
 - [`examples/media_upload/`](./examples/media_upload) - Upload media dan mengirim dokumen/gambar.
 - [`examples/business_profile/`](./examples/business_profile) - Mengambil dan memperbarui WhatsApp Business Profile.
 - [`examples/templates_management/`](./examples/templates_management) - Manajemen template pesan WABA.
 - [`examples/qr_codes/`](./examples/qr_codes) - Pembuatan dan manajemen WhatsApp QR Codes.
-- [`examples/webhook_server/`](./examples/webhook_server) - Server HTTP penanganan webhook WhatsApp Cloud API.
+- [`examples/webhook_server/`](./examples/webhook_server) - Server HTTP penanganan webhook WhatsApp Cloud API (Teks, Media, Order, Flow).
 
 ---
 
