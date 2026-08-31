@@ -1,7 +1,8 @@
 package wacloudapi
 
 type Client struct {
-	config *Config
+	config   *Config
+	Messages *MessagesService
 }
 
 func New(accessToken, phoneNumberID string, opts ...Option) *Client {
@@ -13,6 +14,7 @@ func New(accessToken, phoneNumberID string, opts ...Option) *Client {
 	c := &Client{
 		config: cfg,
 	}
+	c.Messages = newMessagesService(c)
 
 	return c
 }
