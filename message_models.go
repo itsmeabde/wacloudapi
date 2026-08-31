@@ -144,6 +144,24 @@ type TemplateComponent struct {
 	SubType    string              `json:"sub_type,omitempty"`
 	Index      int                 `json:"index,omitempty"`
 	Parameters []TemplateParameter `json:"parameters,omitempty"`
+	Text       string              `json:"text,omitempty"`
+	Format     string              `json:"format,omitempty"`
+	Example    *TemplateExample    `json:"example,omitempty"`
+	Buttons    []TemplateButton    `json:"buttons,omitempty"`
+	URL        string              `json:"url,omitempty"`
+}
+
+type TemplateExample struct {
+	HeaderText   []string   `json:"header_text,omitempty"`
+	BodyText     [][]string `json:"body_text,omitempty"`
+	HeaderHandle []string   `json:"header_handle,omitempty"`
+}
+
+type TemplateButton struct {
+	Type        string `json:"type"`
+	Text        string `json:"text,omitempty"`
+	URL         string `json:"url,omitempty"`
+	PhoneNumber string `json:"phone_number,omitempty"`
 }
 
 type TemplateLanguage struct {
