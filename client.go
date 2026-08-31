@@ -7,6 +7,7 @@ type Client struct {
 	BusinessProfile *BusinessProfileService
 	Templates       *TemplatesService
 	PhoneNumbers    *PhoneNumbersService
+	QRCodes         *QRCodesService
 }
 
 func New(accessToken, phoneNumberID string, opts ...Option) *Client {
@@ -23,6 +24,7 @@ func New(accessToken, phoneNumberID string, opts ...Option) *Client {
 	c.BusinessProfile = newBusinessProfileService(c)
 	c.Templates = newTemplatesService(c)
 	c.PhoneNumbers = newPhoneNumbersService(c)
+	c.QRCodes = newQRCodesService(c)
 
 	return c
 }
