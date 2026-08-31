@@ -69,6 +69,17 @@ func (r *ListTemplatesResponse) NextCursor() string {
 	return ""
 }
 
+func (r *ListTemplatesResponse) HasPrevious() bool {
+	return r != nil && r.Paging != nil && (r.Paging.Previous != "" || (r.Paging.Cursors != nil && r.Paging.Cursors.Before != ""))
+}
+
+func (r *ListTemplatesResponse) PreviousCursor() string {
+	if r != nil && r.Paging != nil && r.Paging.Cursors != nil {
+		return r.Paging.Cursors.Before
+	}
+	return ""
+}
+
 type TemplateDetails struct {
 	ID         string              `json:"id"`
 	Name       string              `json:"name"`

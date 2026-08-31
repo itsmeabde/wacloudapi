@@ -86,6 +86,34 @@ func (s *TemplatesService) List(ctx context.Context, req *ListTemplatesRequest) 
 	return &resp, nil
 }
 
+func (s *TemplatesService) NextPage(ctx context.Context, current *ListTemplatesResponse, wabaID ...string) (*ListTemplatesResponse, error) {
+	if current == nil || !current.HasNext() {
+		return nil, fmt.Errorf("wacloudapi: no next page available")
+	}
+	var explicitWABA string
+	if len(wabaID) > 0 {
+		explicitWABA = wabaID[0]
+	}
+	return s.List(ctx, &ListTemplatesRequest{
+		WABAID: explicitWABA,
+		After:  current.NextCursor(),
+	})
+}
+
+func (s *TemplatesService) PrevPage(ctx context.Context, current *ListTemplatesResponse, wabaID ...string) (*ListTemplatesResponse, error) {
+	if current == nil || !current.HasPrevious() {
+		return nil, fmt.Errorf("wacloudapi: no previous page available")
+	}
+	var explicitWABA string
+	if len(wabaID) > 0 {
+		explicitWABA = wabaID[0]
+	}
+	return s.List(ctx, &ListTemplatesRequest{
+		WABAID: explicitWABA,
+		Before: current.PreviousCursor(),
+	})
+}
+
 func (s *TemplatesService) Get(ctx context.Context, templateID string) (*TemplateDetails, error) {
 	if templateID == "" {
 		return nil, fmt.Errorf("wacloudapi: templateID cannot be empty")

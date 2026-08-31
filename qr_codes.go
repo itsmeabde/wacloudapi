@@ -88,20 +88,46 @@ func (s *QRCodesService) DownloadImage(ctx context.Context, qrCodeID string) ([]
 		return nil, fmt.Errorf("wacloudapi: qr_image_url is empty")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, details.QRImageURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("wacloudapi: failed to create download request: %w", err)
-	}
+	maxAttempts := 1 + s.client.config.MaxRetries
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 
-	resp, err := s.client.config.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("wacloudapi: failed to download QR image: %w", err)
-	}
-	defer resp.Body.Close()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, details.QRImageURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("wacloudapi: failed to create download request: %w", err)
+		}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		resp, err := s.client.config.HTTPClient.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if attempt < maxAttempts {
+				s.client.backoff(ctx, attempt)
+				continue
+			}
+			return nil, fmt.Errorf("wacloudapi: failed to download QR image: %w", err)
+		}
+
+		respBytes, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("wacloudapi: failed to read QR image body: %w", readErr)
+		}
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return respBytes, nil
+		}
+
+		if resp.StatusCode >= 500 && attempt < maxAttempts {
+			s.client.backoff(ctx, attempt)
+			continue
+		}
+
 		return nil, fmt.Errorf("wacloudapi: download QR image failed with status %d", resp.StatusCode)
 	}
 
-	return io.ReadAll(resp.Body)
+	return nil, fmt.Errorf("wacloudapi: download QR image failed after %d attempts", maxAttempts)
 }

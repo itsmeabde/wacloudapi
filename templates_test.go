@@ -206,6 +206,12 @@ func TestListTemplatesResponse_PaginationHelpers(t *testing.T) {
 	if nilResp.NextCursor() != "" {
 		t.Errorf("expected NextCursor() empty for nil response")
 	}
+	if nilResp.HasPrevious() {
+		t.Errorf("expected HasPrevious() false for nil response")
+	}
+	if nilResp.PreviousCursor() != "" {
+		t.Errorf("expected PreviousCursor() empty for nil response")
+	}
 
 	emptyResp := &ListTemplatesResponse{}
 	if emptyResp.HasNext() {
@@ -213,6 +219,12 @@ func TestListTemplatesResponse_PaginationHelpers(t *testing.T) {
 	}
 	if emptyResp.NextCursor() != "" {
 		t.Errorf("expected NextCursor() empty for empty response")
+	}
+	if emptyResp.HasPrevious() {
+		t.Errorf("expected HasPrevious() false for empty response")
+	}
+	if emptyResp.PreviousCursor() != "" {
+		t.Errorf("expected PreviousCursor() empty for empty response")
 	}
 
 	respWithNextURL := &ListTemplatesResponse{
@@ -227,16 +239,157 @@ func TestListTemplatesResponse_PaginationHelpers(t *testing.T) {
 		t.Errorf("expected NextCursor() empty when cursors is nil")
 	}
 
+	respWithPrevURL := &ListTemplatesResponse{
+		Paging: &Paging{
+			Previous: "https://graph.facebook.com/v21.0/waba-123/message_templates?before=abc",
+		},
+	}
+	if !respWithPrevURL.HasPrevious() {
+		t.Errorf("expected HasPrevious() true for response with prev URL")
+	}
+	if respWithPrevURL.PreviousCursor() != "" {
+		t.Errorf("expected PreviousCursor() empty when cursors is nil")
+	}
+
 	respWithCursor := &ListTemplatesResponse{
 		Paging: &Paging{
-			Cursors: &Cursors{After: "cursor_xyz"},
+			Cursors: &Cursors{
+				Before: "cursor_before_123",
+				After:  "cursor_after_123",
+			},
 		},
 	}
 	if !respWithCursor.HasNext() {
 		t.Errorf("expected HasNext() true for response with cursor")
 	}
-	if respWithCursor.NextCursor() != "cursor_xyz" {
-		t.Errorf("expected NextCursor() cursor_xyz, got %s", respWithCursor.NextCursor())
+	if respWithCursor.NextCursor() != "cursor_after_123" {
+		t.Errorf("expected NextCursor() cursor_after_123, got %s", respWithCursor.NextCursor())
+	}
+	if !respWithCursor.HasPrevious() {
+		t.Errorf("expected HasPrevious() true for response with cursor")
+	}
+	if respWithCursor.PreviousCursor() != "cursor_before_123" {
+		t.Errorf("expected PreviousCursor() cursor_before_123, got %s", respWithCursor.PreviousCursor())
+	}
+}
+
+func TestTemplatesServiceNextPage(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("after") != "cursor_after_1" {
+			t.Errorf("expected after cursor_after_1, got %s", r.URL.Query().Get("after"))
+		}
+		_ = json.NewEncoder(w).Encode(ListTemplatesResponse{
+			Data: []TemplateDetails{
+				{ID: "tpl-page2", Name: "template_2"},
+			},
+			Paging: &Paging{
+				Cursors: &Cursors{Before: "cursor_before_2", After: "cursor_after_2"},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c := New("test-token", "phone-1", WithWABAID("waba-123"), WithBaseURL(ts.URL))
+
+	current := &ListTemplatesResponse{
+		Data: []TemplateDetails{{ID: "tpl-page1"}},
+		Paging: &Paging{
+			Cursors: &Cursors{After: "cursor_after_1"},
+		},
+	}
+
+	next, err := c.Templates.NextPage(context.Background(), current)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(next.Data) != 1 || next.Data[0].ID != "tpl-page2" {
+		t.Errorf("unexpected next page data: %+v", next)
+	}
+
+	// Explicit WABA ID
+	nextExplicit, err := c.Templates.NextPage(context.Background(), current, "waba-123")
+	if err != nil {
+		t.Fatalf("unexpected error with explicit WABA: %v", err)
+	}
+	if len(nextExplicit.Data) != 1 || nextExplicit.Data[0].ID != "tpl-page2" {
+		t.Errorf("unexpected next page data with explicit WABA: %+v", nextExplicit)
+	}
+}
+
+func TestTemplatesServiceNextPage_Errors(t *testing.T) {
+	c := New("test-token", "phone-1", WithWABAID("waba-123"))
+
+	// Nil current
+	_, err := c.Templates.NextPage(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected error for nil current response")
+	}
+
+	// No next page available
+	noNext := &ListTemplatesResponse{}
+	_, err = c.Templates.NextPage(context.Background(), noNext)
+	if err == nil {
+		t.Fatal("expected error when no next page available")
+	}
+}
+
+func TestTemplatesServicePrevPage(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("before") != "cursor_before_2" {
+			t.Errorf("expected before cursor_before_2, got %s", r.URL.Query().Get("before"))
+		}
+		_ = json.NewEncoder(w).Encode(ListTemplatesResponse{
+			Data: []TemplateDetails{
+				{ID: "tpl-page1", Name: "template_1"},
+			},
+			Paging: &Paging{
+				Cursors: &Cursors{Before: "cursor_before_1", After: "cursor_after_1"},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c := New("test-token", "phone-1", WithWABAID("waba-123"), WithBaseURL(ts.URL))
+
+	current := &ListTemplatesResponse{
+		Data: []TemplateDetails{{ID: "tpl-page2"}},
+		Paging: &Paging{
+			Cursors: &Cursors{Before: "cursor_before_2"},
+		},
+	}
+
+	prev, err := c.Templates.PrevPage(context.Background(), current)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(prev.Data) != 1 || prev.Data[0].ID != "tpl-page1" {
+		t.Errorf("unexpected prev page data: %+v", prev)
+	}
+
+	// Explicit WABA ID
+	prevExplicit, err := c.Templates.PrevPage(context.Background(), current, "waba-123")
+	if err != nil {
+		t.Fatalf("unexpected error with explicit WABA: %v", err)
+	}
+	if len(prevExplicit.Data) != 1 || prevExplicit.Data[0].ID != "tpl-page1" {
+		t.Errorf("unexpected prev page data with explicit WABA: %+v", prevExplicit)
+	}
+}
+
+func TestTemplatesServicePrevPage_Errors(t *testing.T) {
+	c := New("test-token", "phone-1", WithWABAID("waba-123"))
+
+	// Nil current
+	_, err := c.Templates.PrevPage(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected error for nil current response")
+	}
+
+	// No prev page available
+	noPrev := &ListTemplatesResponse{}
+	_, err = c.Templates.PrevPage(context.Background(), noPrev)
+	if err == nil {
+		t.Fatal("expected error when no previous page available")
 	}
 }
 

@@ -3,9 +3,14 @@ package wacloudapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestQRCodesServiceCreateAndDownload(t *testing.T) {
@@ -293,5 +298,116 @@ func TestQRCodesServiceDownloadImage_Errors(t *testing.T) {
 	_, err = c.QRCodes.DownloadImage(context.Background(), "QR_ERR")
 	if err == nil {
 		t.Fatal("expected error when image download returns 500 status")
+	}
+}
+
+func TestQRCodesServiceDownloadImage_RetryOn5xx(t *testing.T) {
+	var attempts int32
+	imgServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&attempts, 1)
+		if count == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<png>QR Image Bytes</png>"))
+	}))
+	defer imgServer.Close()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(struct {
+			Data []QRCodeDetails `json:"data"`
+		}{
+			Data: []QRCodeDetails{
+				{
+					Code:       "QR_RETRY_5XX",
+					QRImageURL: imgServer.URL,
+				},
+			},
+		})
+	}))
+	defer apiServer.Close()
+
+	c := New("test-token", "phone-1",
+		WithBaseURL(apiServer.URL),
+		WithRetry(2, 5*time.Millisecond),
+	)
+
+	data, err := c.QRCodes.DownloadImage(context.Background(), "QR_RETRY_5XX")
+	if err != nil {
+		t.Fatalf("expected successful download after 5xx retry, got: %v", err)
+	}
+	if string(data) != "<png>QR Image Bytes</png>" {
+		t.Errorf("unexpected data: %s", string(data))
+	}
+	if atomic.LoadInt32(&attempts) != 2 {
+		t.Errorf("expected 2 attempts, got %d", attempts)
+	}
+}
+
+func TestQRCodesServiceDownloadImage_RetryOnNetworkError(t *testing.T) {
+	var attempts int32
+	client := &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if strings.Contains(req.URL.Path, "message_qrdls") {
+				respJSON := `{"data":[{"code":"QR_NET","qr_image_url":"https://custom.image/qr.png"}]}`
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(respJSON)),
+					Header:     make(http.Header),
+				}, nil
+			}
+
+			count := atomic.AddInt32(&attempts, 1)
+			if count == 1 {
+				return nil, errors.New("temporary network timeout")
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader("<svg>Recovered Image</svg>")),
+				Header:     make(http.Header),
+			}, nil
+		}),
+	}
+
+	c := New("test-token", "phone-1",
+		WithHTTPClient(client),
+		WithRetry(2, 5*time.Millisecond),
+	)
+
+	data, err := c.QRCodes.DownloadImage(context.Background(), "QR_NET")
+	if err != nil {
+		t.Fatalf("expected recovery after network retry, got: %v", err)
+	}
+	if string(data) != "<svg>Recovered Image</svg>" {
+		t.Errorf("unexpected data: %s", string(data))
+	}
+	if atomic.LoadInt32(&attempts) != 2 {
+		t.Errorf("expected 2 attempts, got %d", attempts)
+	}
+}
+
+func TestQRCodesServiceDownloadImage_ContextCanceled(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(struct {
+			Data []QRCodeDetails `json:"data"`
+		}{
+			Data: []QRCodeDetails{
+				{
+					Code:       "QR_CTX",
+					QRImageURL: "http://127.0.0.1:0/never",
+				},
+			},
+		})
+	}))
+	defer apiServer.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	c := New("test-token", "phone-1", WithBaseURL(apiServer.URL))
+	_, err := c.QRCodes.DownloadImage(ctx, "QR_CTX")
+	if err == nil {
+		t.Fatal("expected error on canceled context, got nil")
 	}
 }
