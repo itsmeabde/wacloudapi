@@ -65,17 +65,7 @@ func NewServer(opts ...Option) *Server {
 	}
 
 	// Ensure phone numbers in state reflect the configured phone number
-	if s.phoneNumberID != DefaultPhoneNumberID {
-		s.state.mu.Lock()
-		s.state.phoneNumbers = append(s.state.phoneNumbers, wacloudapi.PhoneNumberDetails{
-			ID:                 s.phoneNumberID,
-			DisplayPhoneNumber: "+1 555-0100",
-			VerifiedName:       "Test Business",
-			QualityRating:      "GREEN",
-			CodeVerificationStatus: "VERIFIED",
-		})
-		s.state.mu.Unlock()
-	}
+	s.ensureConfiguredPhoneNumber()
 
 	s.httpServer = httptest.NewServer(s)
 
@@ -175,6 +165,25 @@ func (s *Server) Reset() {
 	s.mu.Unlock()
 
 	s.state.Reset()
+	s.ensureConfiguredPhoneNumber()
+}
+
+func (s *Server) ensureConfiguredPhoneNumber() {
+	s.mu.RLock()
+	phoneID := s.phoneNumberID
+	s.mu.RUnlock()
+
+	if phoneID != DefaultPhoneNumberID && phoneID != "" {
+		s.state.mu.Lock()
+		s.state.phoneNumbers = append(s.state.phoneNumbers, wacloudapi.PhoneNumberDetails{
+			ID:                     phoneID,
+			DisplayPhoneNumber:     "+1 555-0100",
+			VerifiedName:           "Test Business",
+			QualityRating:          "GREEN",
+			CodeVerificationStatus: "VERIFIED",
+		})
+		s.state.mu.Unlock()
+	}
 }
 
 // PhoneNumberID returns the configured Phone Number ID.

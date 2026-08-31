@@ -131,6 +131,68 @@ func TestServer_Reset(t *testing.T) {
 	srv.Reset()
 }
 
+func TestServer_Reset_PreservesCustomPhoneNumberID(t *testing.T) {
+	ctx := context.Background()
+	customPhoneID := "custom_phone_999"
+	srv := wacloudapitest.NewServer(
+		wacloudapitest.WithPhoneNumberID(customPhoneID),
+	)
+	defer srv.Close()
+
+	client := srv.Client()
+
+	// 1. Verify before Reset that the custom phone number is listed
+	listResp, err := client.PhoneNumbers.List(ctx)
+	if err != nil {
+		t.Fatalf("PhoneNumbers.List before Reset failed: %v", err)
+	}
+	found := false
+	for _, p := range listResp.Data {
+		if p.ID == customPhoneID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected custom phone number ID %q before Reset in %+v", customPhoneID, listResp.Data)
+	}
+
+	details, err := client.PhoneNumbers.Get(ctx, customPhoneID)
+	if err != nil {
+		t.Fatalf("PhoneNumbers.Get before Reset failed: %v", err)
+	}
+	if details.ID != customPhoneID {
+		t.Errorf("expected phone number ID %q, got %q", customPhoneID, details.ID)
+	}
+
+	// 2. Perform Reset
+	srv.Reset()
+
+	// 3. Verify after Reset that the custom phone number is still listed and retrievable
+	listRespAfter, err := client.PhoneNumbers.List(ctx)
+	if err != nil {
+		t.Fatalf("PhoneNumbers.List after Reset failed: %v", err)
+	}
+	foundAfter := false
+	for _, p := range listRespAfter.Data {
+		if p.ID == customPhoneID {
+			foundAfter = true
+			break
+		}
+	}
+	if !foundAfter {
+		t.Fatalf("expected custom phone number ID %q after Reset in %+v", customPhoneID, listRespAfter.Data)
+	}
+
+	detailsAfter, err := client.PhoneNumbers.Get(ctx, customPhoneID)
+	if err != nil {
+		t.Fatalf("PhoneNumbers.Get after Reset failed: %v", err)
+	}
+	if detailsAfter.ID != customPhoneID {
+		t.Errorf("expected phone number ID %q after Reset, got %q", customPhoneID, detailsAfter.ID)
+	}
+}
+
 func TestServer_HTTPConnection(t *testing.T) {
 	srv := wacloudapitest.NewServer()
 	defer srv.Close()
