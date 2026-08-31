@@ -379,3 +379,217 @@ func TestHandlerNoDeadlockWhenRegisteringInCallback(t *testing.T) {
 	}
 }
 
+func TestHandlerOrderAndFlowCallbacks(t *testing.T) {
+	verifyToken := "test-verify-token"
+	appSecret := "test-secret"
+	h := NewHandler(verifyToken, appSecret)
+
+	var (
+		msgReceived   int32
+		orderReceived int32
+		flowReceived  int32
+	)
+
+	var (
+		capturedOrder Order
+		capturedFlow  NFMReply
+		capturedMeta  Metadata
+		capturedMsg   Message
+	)
+
+	var wg sync.WaitGroup
+	// We will send 2 messages: 1 order message and 1 flow interactive response message.
+	// OnMessage: 2 times
+	// OnOrderMessage: 1 time
+	// OnFlowResponseMessage: 1 time
+	wg.Add(4)
+
+	h.OnMessage(func(ctx context.Context, msg Message, meta Metadata) error {
+		atomic.AddInt32(&msgReceived, 1)
+		wg.Done()
+		return nil
+	})
+
+	h.OnOrderMessage(func(ctx context.Context, order Order, msg Message, meta Metadata) error {
+		capturedOrder = order
+		capturedMsg = msg
+		capturedMeta = meta
+		atomic.AddInt32(&orderReceived, 1)
+		wg.Done()
+		return nil
+	})
+
+	h.OnFlowResponseMessage(func(ctx context.Context, reply NFMReply, msg Message, meta Metadata) error {
+		capturedFlow = reply
+		atomic.AddInt32(&flowReceived, 1)
+		wg.Done()
+		return nil
+	})
+
+	rawPayload := []byte(`{
+		"object": "whatsapp_business_account",
+		"entry": [{
+			"id": "1",
+			"changes": [{
+				"field": "messages",
+				"value": {
+					"messaging_product": "whatsapp",
+					"metadata": { "phone_number_id": "123456", "display_phone_number": "123" },
+					"messages": [
+						{
+							"from": "6281",
+							"id": "wamid.order1",
+							"type": "order",
+							"order": {
+								"catalog_id": "cat_test_1",
+								"text": "Please deliver soon",
+								"product_items": [
+									{
+										"product_retailer_id": "sku_1",
+										"quantity": "3",
+										"item_price": 99.5,
+										"currency": "USD"
+									}
+								]
+							}
+						},
+						{
+							"from": "6281",
+							"id": "wamid.flow1",
+							"type": "interactive",
+							"interactive": {
+								"type": "nfm_reply",
+								"nfm_reply": {
+									"name": "flow",
+									"body": "Sent",
+									"response_json": "{\"screen\":\"SUCCESS\"}"
+								}
+							}
+						}
+					]
+				}
+			}]
+		}]
+	}`)
+
+	mac := hmac.New(sha256.New, []byte(appSecret))
+	mac.Write(rawPayload)
+	sig := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+
+	reqPost := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(rawPayload))
+	reqPost.Header.Set("X-Hub-Signature-256", sig)
+	wPost := httptest.NewRecorder()
+
+	h.ServeHTTP(wPost, reqPost)
+	if wPost.Code != http.StatusOK {
+		t.Errorf("expected POST status 200, got %d", wPost.Code)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for order and flow callbacks")
+	}
+
+	if atomic.LoadInt32(&msgReceived) != 2 {
+		t.Errorf("expected 2 OnMessage calls, got %d", msgReceived)
+	}
+	if atomic.LoadInt32(&orderReceived) != 1 {
+		t.Errorf("expected 1 OnOrderMessage call, got %d", orderReceived)
+	}
+	if atomic.LoadInt32(&flowReceived) != 1 {
+		t.Errorf("expected 1 OnFlowResponseMessage call, got %d", flowReceived)
+	}
+
+	if capturedOrder.CatalogID != "cat_test_1" || len(capturedOrder.ProductItems) != 1 || capturedOrder.ProductItems[0].ProductRetailerID != "sku_1" {
+		t.Errorf("unexpected captured order: %+v", capturedOrder)
+	}
+	if capturedMsg.ID != "wamid.order1" {
+		t.Errorf("unexpected captured msg: %+v", capturedMsg)
+	}
+	if capturedFlow.Name != "flow" || capturedFlow.ResponseJSON != `{"screen":"SUCCESS"}` {
+		t.Errorf("unexpected captured flow reply: %+v", capturedFlow)
+	}
+	if capturedMeta.PhoneNumberID != "123456" {
+		t.Errorf("unexpected captured meta: %+v", capturedMeta)
+	}
+}
+
+func TestHandlerOrderAndFlowCallbackErrorPropagation(t *testing.T) {
+	h := NewHandler("tok", "")
+
+	orderErr := errors.New("order handling failed")
+	flowErr := errors.New("flow handling failed")
+
+	var orderErrCount int32
+	var flowErrCount int32
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	h.OnError(func(ctx context.Context, err error) {
+		if errors.Is(err, orderErr) {
+			atomic.AddInt32(&orderErrCount, 1)
+		}
+		if errors.Is(err, flowErr) {
+			atomic.AddInt32(&flowErrCount, 1)
+		}
+	})
+
+	h.OnOrderMessage(func(ctx context.Context, order Order, msg Message, meta Metadata) error {
+		defer wg.Done()
+		return orderErr
+	})
+
+	h.OnFlowResponseMessage(func(ctx context.Context, reply NFMReply, msg Message, meta Metadata) error {
+		defer wg.Done()
+		return flowErr
+	})
+
+	payload := &Payload{
+		Entry: []Entry{
+			{
+				Changes: []Change{
+					{
+						Value: Value{
+							Messages: []Message{
+								{
+									Type: "order",
+									Order: &Order{
+										CatalogID: "cat_1",
+									},
+								},
+								{
+									Type: "interactive",
+									Interactive: &Interactive{
+										Type: InteractiveTypeNFMReply,
+										NFMReply: &NFMReply{
+											Name: "flow",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	h.dispatchEvents(context.Background(), payload)
+	wg.Wait()
+
+	if atomic.LoadInt32(&orderErrCount) != 1 {
+		t.Errorf("expected 1 order error propagated, got %d", orderErrCount)
+	}
+	if atomic.LoadInt32(&flowErrCount) != 1 {
+		t.Errorf("expected 1 flow error propagated, got %d", flowErrCount)
+	}
+}
+
+

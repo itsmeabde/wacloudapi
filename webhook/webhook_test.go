@@ -381,3 +381,155 @@ func TestParsePayloadInvalidJSON(t *testing.T) {
 		t.Fatalf("expected error on invalid JSON")
 	}
 }
+
+func TestParsePayloadOrderMessage(t *testing.T) {
+	rawJSON := []byte(`{
+		"object": "whatsapp_business_account",
+		"entry": [{
+			"id": "WABA_ID_123",
+			"changes": [{
+				"field": "messages",
+				"value": {
+					"messaging_product": "whatsapp",
+					"metadata": {
+						"display_phone_number": "15550234567",
+						"phone_number_id": "1234567890"
+					},
+					"contacts": [{
+						"profile": { "name": "Bob" },
+						"wa_id": "62812345678"
+					}],
+					"messages": [{
+						"from": "62812345678",
+						"id": "wamid.order123",
+						"timestamp": "1700000050",
+						"type": "order",
+						"order": {
+							"catalog_id": "cat_987",
+							"text": "Tolong segera dikirim ya",
+							"product_items": [
+								{
+									"product_retailer_id": "sku_apple_1",
+									"quantity": "2",
+									"item_price": 150000.50,
+									"currency": "IDR"
+								},
+								{
+									"product_retailer_id": "sku_orange_2",
+									"quantity": "5",
+									"item_price": 20000.0,
+									"currency": "IDR"
+								}
+							]
+						}
+					}]
+				}
+			}]
+		}]
+	}`)
+
+	payload, err := ParsePayload(rawJSON)
+	if err != nil {
+		t.Fatalf("unexpected error parsing order payload: %v", err)
+	}
+
+	msgs := payload.Entry[0].Changes[0].Value.Messages
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+
+	msg := msgs[0]
+	if msg.Type != "order" {
+		t.Errorf("expected msg type 'order', got: %s", msg.Type)
+	}
+	if msg.Order == nil {
+		t.Fatalf("expected msg.Order not nil")
+	}
+	if msg.Order.CatalogID != "cat_987" {
+		t.Errorf("expected catalog_id 'cat_987', got: %s", msg.Order.CatalogID)
+	}
+	if msg.Order.Text != "Tolong segera dikirim ya" {
+		t.Errorf("expected text 'Tolong segera dikirim ya', got: %s", msg.Order.Text)
+	}
+	if len(msg.Order.ProductItems) != 2 {
+		t.Fatalf("expected 2 product items, got %d", len(msg.Order.ProductItems))
+	}
+
+	item1 := msg.Order.ProductItems[0]
+	if item1.ProductRetailerID != "sku_apple_1" || item1.Quantity != "2" || item1.ItemPrice != 150000.50 || item1.Currency != "IDR" {
+		t.Errorf("unexpected item 1: %+v", item1)
+	}
+
+	item2 := msg.Order.ProductItems[1]
+	if item2.ProductRetailerID != "sku_orange_2" || item2.Quantity != "5" || item2.ItemPrice != 20000.0 || item2.Currency != "IDR" {
+		t.Errorf("unexpected item 2: %+v", item2)
+	}
+}
+
+func TestParsePayloadFlowResponseMessage(t *testing.T) {
+	rawJSON := []byte(`{
+		"object": "whatsapp_business_account",
+		"entry": [{
+			"id": "WABA_ID_123",
+			"changes": [{
+				"field": "messages",
+				"value": {
+					"messaging_product": "whatsapp",
+					"metadata": {
+						"display_phone_number": "15550234567",
+						"phone_number_id": "1234567890"
+					},
+					"messages": [{
+						"from": "62812345678",
+						"id": "wamid.flowrep123",
+						"timestamp": "1700000060",
+						"type": "interactive",
+						"interactive": {
+							"type": "nfm_reply",
+							"nfm_reply": {
+								"name": "flow",
+								"body": "Sent",
+								"response_json": "{\"flow_token\":\"token_abc\",\"screen\":\"QUESTION_1\",\"answer\":\"Yes\"}"
+							}
+						}
+					}]
+				}
+			}]
+		}]
+	}`)
+
+	payload, err := ParsePayload(rawJSON)
+	if err != nil {
+		t.Fatalf("unexpected error parsing flow response payload: %v", err)
+	}
+
+	msgs := payload.Entry[0].Changes[0].Value.Messages
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(msgs))
+	}
+
+	msg := msgs[0]
+	if msg.Type != "interactive" {
+		t.Errorf("expected msg type 'interactive', got: %s", msg.Type)
+	}
+	if msg.Interactive == nil {
+		t.Fatalf("expected msg.Interactive not nil")
+	}
+	if msg.Interactive.Type != InteractiveTypeNFMReply {
+		t.Errorf("expected interactive type '%s', got: %s", InteractiveTypeNFMReply, msg.Interactive.Type)
+	}
+	if msg.Interactive.NFMReply == nil {
+		t.Fatalf("expected msg.Interactive.NFMReply not nil")
+	}
+	if msg.Interactive.NFMReply.Name != "flow" {
+		t.Errorf("expected name 'flow', got: %s", msg.Interactive.NFMReply.Name)
+	}
+	if msg.Interactive.NFMReply.Body != "Sent" {
+		t.Errorf("expected body 'Sent', got: %s", msg.Interactive.NFMReply.Body)
+	}
+	expectedJSON := `{"flow_token":"token_abc","screen":"QUESTION_1","answer":"Yes"}`
+	if msg.Interactive.NFMReply.ResponseJSON != expectedJSON {
+		t.Errorf("expected response_json %s, got %s", expectedJSON, msg.Interactive.NFMReply.ResponseJSON)
+	}
+}
+

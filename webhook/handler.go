@@ -10,6 +10,8 @@ import (
 type MessageHandler func(ctx context.Context, msg Message, meta Metadata) error
 type StatusHandler func(ctx context.Context, status Status, meta Metadata) error
 type ErrorHandler func(ctx context.Context, err error)
+type OrderHandler func(ctx context.Context, order Order, msg Message, meta Metadata) error
+type FlowReplyHandler func(ctx context.Context, reply NFMReply, msg Message, meta Metadata) error
 
 type Handler struct {
 	verifyToken string
@@ -20,6 +22,8 @@ type Handler struct {
 	onTextMessage    []MessageHandler
 	onMediaMessage   []MessageHandler
 	onInteractiveMsg []MessageHandler
+	onOrderMessage   []OrderHandler
+	onFlowReply      []FlowReplyHandler
 	onStatus         []StatusHandler
 	onError          []ErrorHandler
 }
@@ -53,6 +57,18 @@ func (h *Handler) OnInteractiveMessage(fn MessageHandler) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.onInteractiveMsg = append(h.onInteractiveMsg, fn)
+}
+
+func (h *Handler) OnOrderMessage(fn OrderHandler) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onOrderMessage = append(h.onOrderMessage, fn)
+}
+
+func (h *Handler) OnFlowResponseMessage(fn FlowReplyHandler) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.onFlowReply = append(h.onFlowReply, fn)
 }
 
 func (h *Handler) OnStatus(fn StatusHandler) {
@@ -114,6 +130,8 @@ func (h *Handler) dispatchEvents(ctx context.Context, payload *Payload) {
 	onText := append([]MessageHandler(nil), h.onTextMessage...)
 	onMedia := append([]MessageHandler(nil), h.onMediaMessage...)
 	onInteractive := append([]MessageHandler(nil), h.onInteractiveMsg...)
+	onOrder := append([]OrderHandler(nil), h.onOrderMessage...)
+	onFlow := append([]FlowReplyHandler(nil), h.onFlowReply...)
 	onStatus := append([]StatusHandler(nil), h.onStatus...)
 	h.mu.RUnlock()
 
@@ -149,6 +167,22 @@ func (h *Handler) dispatchEvents(ctx context.Context, payload *Payload) {
 				if msg.Type == "interactive" {
 					for _, fn := range onInteractive {
 						if err := fn(ctx, msg, meta); err != nil {
+							h.dispatchError(ctx, err)
+						}
+					}
+
+					if msg.Interactive != nil && msg.Interactive.NFMReply != nil {
+						for _, fn := range onFlow {
+							if err := fn(ctx, *msg.Interactive.NFMReply, msg, meta); err != nil {
+								h.dispatchError(ctx, err)
+							}
+						}
+					}
+				}
+
+				if msg.Type == "order" && msg.Order != nil {
+					for _, fn := range onOrder {
+						if err := fn(ctx, *msg.Order, msg, meta); err != nil {
 							h.dispatchError(ctx, err)
 						}
 					}

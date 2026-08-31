@@ -55,6 +55,7 @@ type Message struct {
 	Interactive *Interactive `json:"interactive,omitempty"`
 	Reaction    *Reaction    `json:"reaction,omitempty"`
 	System      *System      `json:"system,omitempty"`
+	Order       *Order       `json:"order,omitempty"`
 }
 
 func (m *Message) MediaID() string {
@@ -115,14 +116,16 @@ type Reaction struct {
 }
 
 type Interactive struct {
-	Type        string            `json:"type"` // button_reply, list_reply
+	Type        string            `json:"type"` // button_reply, list_reply, nfm_reply
 	ButtonReply *ButtonReplyValue `json:"button_reply,omitempty"`
 	ListReply   *ListReplyValue   `json:"list_reply,omitempty"`
+	NFMReply    *NFMReply         `json:"nfm_reply,omitempty"`
 }
 
 const (
 	InteractiveTypeButtonReply = "button_reply"
 	InteractiveTypeListReply   = "list_reply"
+	InteractiveTypeNFMReply    = "nfm_reply"
 )
 
 type ButtonReplyValue struct {
@@ -134,6 +137,25 @@ type ListReplyValue struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
+}
+
+type NFMReply struct {
+	Name         string `json:"name"`
+	Body         string `json:"body"`
+	ResponseJSON string `json:"response_json"`
+}
+
+type Order struct {
+	CatalogID    string      `json:"catalog_id"`
+	Text         string      `json:"text,omitempty"`
+	ProductItems []OrderItem `json:"product_items"`
+}
+
+type OrderItem struct {
+	ProductRetailerID string  `json:"product_retailer_id"`
+	Quantity          string  `json:"quantity"`
+	ItemPrice         float64 `json:"item_price"`
+	Currency          string  `json:"currency"`
 }
 
 type System struct {
