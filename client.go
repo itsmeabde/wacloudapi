@@ -6,6 +6,7 @@ type Client struct {
 	Media           *MediaService
 	BusinessProfile *BusinessProfileService
 	Templates       *TemplatesService
+	PhoneNumbers    *PhoneNumbersService
 }
 
 func New(accessToken, phoneNumberID string, opts ...Option) *Client {
@@ -21,6 +22,7 @@ func New(accessToken, phoneNumberID string, opts ...Option) *Client {
 	c.Media = newMediaService(c)
 	c.BusinessProfile = newBusinessProfileService(c)
 	c.Templates = newTemplatesService(c)
+	c.PhoneNumbers = newPhoneNumbersService(c)
 
 	return c
 }
