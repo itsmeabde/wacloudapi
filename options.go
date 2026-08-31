@@ -50,3 +50,11 @@ func WithRetry(maxRetries int, waitMin ...time.Duration) Option {
 		}
 	}
 }
+
+func WithWABAID(wabaID string) Option {
+	return func(c *Config) {
+		if wabaID != "" {
+			c.WABAID = wabaID
+		}
+	}
+}

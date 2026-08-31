@@ -16,6 +16,7 @@ const (
 type Config struct {
 	AccessToken   string
 	PhoneNumberID string
+	WABAID        string
 	APIVersion    string
 	BaseURL       string
 	HTTPClient    *http.Client

@@ -1,9 +1,10 @@
 package wacloudapi
 
 type Client struct {
-	config   *Config
-	Messages *MessagesService
-	Media    *MediaService
+	config          *Config
+	Messages        *MessagesService
+	Media           *MediaService
+	BusinessProfile *BusinessProfileService
 }
 
 func New(accessToken, phoneNumberID string, opts ...Option) *Client {
@@ -17,6 +18,7 @@ func New(accessToken, phoneNumberID string, opts ...Option) *Client {
 	}
 	c.Messages = newMessagesService(c)
 	c.Media = newMediaService(c)
+	c.BusinessProfile = newBusinessProfileService(c)
 
 	return c
 }
