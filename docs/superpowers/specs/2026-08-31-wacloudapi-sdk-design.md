@@ -1,7 +1,7 @@
 # Product Requirement Document (PRD) & Technical Design: Go WhatsApp Cloud API SDK
 
 **Module**: `github.com/itsmeabde/wacloudapi`  
-**Go Version**: `go 1.26+`  
+**Go Version**: `go 1.22+`  
 **Status**: Approved Spec  
 **Author**: @itsmeabde & Antigravity  
 **Date**: 2026-08-31  
