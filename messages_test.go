@@ -594,3 +594,196 @@ func TestMessagesServiceMarkAsRead(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestMessagesServiceSendSingleProduct(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SendMessageRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		if req.Type != "interactive" || req.Interactive == nil || req.Interactive.Type != InteractiveTypeProduct {
+			t.Errorf("unexpected interactive product type: %+v", req.Interactive)
+		}
+		if req.Interactive.Action.CatalogID != "cat_123" || req.Interactive.Action.ProductRetailerID != "prod_456" {
+			t.Errorf("unexpected product action: %+v", req.Interactive.Action)
+		}
+
+		_ = json.NewEncoder(w).Encode(SendMessageResponse{
+			MessagingProduct: "whatsapp",
+			Messages: []struct {
+				ID            string `json:"id"`
+				MessageStatus string `json:"message_status,omitempty"`
+			}{
+				{ID: "wamid.prod123"},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c := New("test-token", "phone-1", WithBaseURL(ts.URL))
+	res, err := c.Messages.SendSingleProduct(context.Background(), "628123456789", "cat_123", "prod_456", "Lihat produk pilihan kami", WithReplyTo("wamid.rep123"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Messages[0].ID != "wamid.prod123" {
+		t.Errorf("unexpected message id: %s", res.Messages[0].ID)
+	}
+}
+
+func TestMessagesServiceSendMultiProduct(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SendMessageRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		if req.Interactive.Type != InteractiveTypeProductList {
+			t.Errorf("unexpected type: %s", req.Interactive.Type)
+		}
+		if len(req.Interactive.Action.Sections) != 1 || len(req.Interactive.Action.Sections[0].ProductItems) != 2 {
+			t.Errorf("unexpected sections: %+v", req.Interactive.Action.Sections)
+		}
+
+		_ = json.NewEncoder(w).Encode(SendMessageResponse{
+			MessagingProduct: "whatsapp",
+			Messages: []struct {
+				ID            string `json:"id"`
+				MessageStatus string `json:"message_status,omitempty"`
+			}{
+				{ID: "wamid.mpm123"},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c := New("test-token", "phone-1", WithBaseURL(ts.URL))
+	res, err := c.Messages.SendMultiProduct(context.Background(), "628123456789", &MultiProductRequest{
+		CatalogID:   "cat_123",
+		HeaderTitle: "Katalog Promo",
+		BodyText:    "Pilih produk favorit Anda:",
+		Sections: []ProductSection{
+			{
+				Title: "Kategori Elektronik",
+				ProductItems: []ProductItem{
+					{ProductRetailerID: "item_1"},
+					{ProductRetailerID: "item_2"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Messages[0].ID != "wamid.mpm123" {
+		t.Errorf("unexpected message id: %s", res.Messages[0].ID)
+	}
+}
+
+func TestMessagesServiceSendFlow(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SendMessageRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		if req.Interactive.Type != InteractiveTypeFlow || req.Interactive.Action.Name != "flow" {
+			t.Errorf("unexpected flow action: %+v", req.Interactive)
+		}
+
+		_ = json.NewEncoder(w).Encode(SendMessageResponse{
+			MessagingProduct: "whatsapp",
+			Messages: []struct {
+				ID            string `json:"id"`
+				MessageStatus string `json:"message_status,omitempty"`
+			}{
+				{ID: "wamid.flow123"},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c := New("test-token", "phone-1", WithBaseURL(ts.URL))
+	res, err := c.Messages.SendFlow(context.Background(), "628123456789", &FlowMessageRequest{
+		FlowID:    "flow_999",
+		FlowToken: "token_abc",
+		FlowCTA:   "Mulai Survey",
+		BodyText:  "Silakan isi survey singkat ini",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Messages[0].ID != "wamid.flow123" {
+		t.Errorf("unexpected id: %s", res.Messages[0].ID)
+	}
+}
+
+func TestMessagesServiceSendOrderDetails(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req SendMessageRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		if req.Type != "interactive" || req.Interactive == nil || req.Interactive.Type != InteractiveTypeOrderDetails {
+			t.Errorf("unexpected interactive order_details type: %+v", req.Interactive)
+		}
+		if req.Interactive.Action.Name != "review_and_pay" {
+			t.Errorf("unexpected action name: %s", req.Interactive.Action.Name)
+		}
+
+		_ = json.NewEncoder(w).Encode(SendMessageResponse{
+			MessagingProduct: "whatsapp",
+			Messages: []struct {
+				ID            string `json:"id"`
+				MessageStatus string `json:"message_status,omitempty"`
+			}{
+				{ID: "wamid.order123"},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c := New("test-token", "phone-1", WithBaseURL(ts.URL))
+	res, err := c.Messages.SendOrderDetails(context.Background(), "628123456789", &OrderDetailsMessage{
+		ReferenceID: "ref_order_001",
+		Type:        "digital-goods",
+		Currency:    "IDR",
+		TotalAmount: OrderAmount{
+			Value:  5000000,
+			Offset: 100,
+		},
+		Order: OrderInfo{
+			CatalogID: "cat_123",
+			Items: []OrderItem{
+				{
+					RetailerID: "prod_001",
+					Name:       "E-Book Golang",
+					Amount: OrderAmount{
+						Value:  5000000,
+						Offset: 100,
+					},
+					Quantity: 1,
+				},
+			},
+			Subtotal: OrderAmount{
+				Value:  5000000,
+				Offset: 100,
+			},
+		},
+	}, WithReplyTo("wamid.reply123"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Messages[0].ID != "wamid.order123" {
+		t.Errorf("unexpected id: %s", res.Messages[0].ID)
+	}
+}
+
+func TestMessagesServiceSendCommerceNilRequests(t *testing.T) {
+	c := New("test-token", "phone-1")
+
+	if _, err := c.Messages.SendMultiProduct(context.Background(), "628123456789", nil); err == nil {
+		t.Error("expected error for nil MultiProductRequest, got nil")
+	}
+
+	if _, err := c.Messages.SendFlow(context.Background(), "628123456789", nil); err == nil {
+		t.Error("expected error for nil FlowMessageRequest, got nil")
+	}
+
+	if _, err := c.Messages.SendOrderDetails(context.Background(), "628123456789", nil); err == nil {
+		t.Error("expected error for nil OrderDetailsMessage, got nil")
+	}
+}

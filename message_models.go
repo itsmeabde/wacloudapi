@@ -178,9 +178,14 @@ type TemplateMessage struct {
 type InteractiveType string
 
 const (
-	InteractiveTypeButton InteractiveType = "button"
-	InteractiveTypeList   InteractiveType = "list"
-	InteractiveTypeCTAURL InteractiveType = "cta_url"
+	InteractiveTypeButton       InteractiveType = "button"
+	InteractiveTypeList         InteractiveType = "list"
+	InteractiveTypeCTAURL       InteractiveType = "cta_url"
+	InteractiveTypeProduct      InteractiveType = "product"
+	InteractiveTypeProductList  InteractiveType = "product_list"
+	InteractiveTypeFlow         InteractiveType = "flow"
+	InteractiveTypeOrderDetails InteractiveType = "order_details"
+	InteractiveTypeOrderStatus  InteractiveType = "order_status"
 )
 
 type InteractiveHeader struct {
@@ -210,8 +215,9 @@ type ButtonReply struct {
 }
 
 type ListSection struct {
-	Title string    `json:"title,omitempty"`
-	Rows  []ListRow `json:"rows"`
+	Title        string        `json:"title,omitempty"`
+	Rows         []ListRow     `json:"rows,omitempty"`
+	ProductItems []ProductItem `json:"product_items,omitempty"`
 }
 
 type ListRow struct {
@@ -220,12 +226,158 @@ type ListRow struct {
 	Description string `json:"description,omitempty"`
 }
 
+// Commerce Models
+type ProductItem struct {
+	ProductRetailerID string `json:"product_retailer_id"`
+}
+
+type ProductSection struct {
+	Title        string        `json:"title"`
+	ProductItems []ProductItem `json:"product_items"`
+}
+
+type MultiProductRequest struct {
+	CatalogID   string           `json:"catalog_id"`
+	HeaderTitle string           `json:"header_title,omitempty"`
+	BodyText    string           `json:"body_text"`
+	FooterText  string           `json:"footer_text,omitempty"`
+	Sections    []ProductSection `json:"sections"`
+}
+
+// WhatsApp Flows Models
+type FlowActionPayload struct {
+	Screen string      `json:"screen,omitempty"`
+	Data   interface{} `json:"data,omitempty"`
+}
+
+type FlowParameters struct {
+	Mode               string             `json:"mode,omitempty"`
+	FlowMessageVersion string             `json:"flow_message_version,omitempty"`
+	FlowToken          string             `json:"flow_token"`
+	FlowID             string             `json:"flow_id"`
+	FlowCTA            string             `json:"flow_cta"`
+	FlowAction         string             `json:"flow_action,omitempty"`
+	FlowActionPayload  *FlowActionPayload `json:"flow_action_payload,omitempty"`
+}
+
+type FlowMessageRequest struct {
+	FlowID             string             `json:"flow_id"`
+	FlowToken          string             `json:"flow_token"`
+	FlowCTA            string             `json:"flow_cta"`
+	FlowAction         string             `json:"flow_action,omitempty"`         // Default: "navigate"
+	FlowMode           string             `json:"flow_mode,omitempty"`           // "draft" or "published"
+	FlowMessageVersion string             `json:"flow_message_version,omitempty"` // Default: "3"
+	Header             *InteractiveHeader `json:"header,omitempty"`
+	BodyText           string             `json:"body_text"`
+	FooterText         string             `json:"footer_text,omitempty"`
+	ActionPayload      *FlowActionPayload `json:"action_payload,omitempty"`
+}
+
+// Order Models
+type OrderAmount struct {
+	Value  int64 `json:"value"`
+	Offset int   `json:"offset"`
+}
+
+type OrderDetailsTax struct {
+	Value       int64  `json:"value"`
+	Offset      int    `json:"offset"`
+	Description string `json:"description,omitempty"`
+}
+
+type OrderDetailsShipping struct {
+	Value       int64  `json:"value"`
+	Offset      int    `json:"offset"`
+	Description string `json:"description,omitempty"`
+}
+
+type OrderDetailsDiscount struct {
+	Value               int64  `json:"value"`
+	Offset              int    `json:"offset"`
+	Description         string `json:"description,omitempty"`
+	DiscountProgramName string `json:"discount_program_name,omitempty"`
+}
+
+type OrderDetailsExpiration struct {
+	Timestamp   string `json:"timestamp,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+type OrderItem struct {
+	RetailerID string       `json:"retailer_id,omitempty"`
+	Name       string       `json:"name"`
+	Amount     OrderAmount  `json:"amount"`
+	Quantity   int          `json:"quantity"`
+	SaleAmount *OrderAmount `json:"sale_amount,omitempty"`
+}
+
+type OrderInfo struct {
+	CatalogID  string                  `json:"catalog_id,omitempty"`
+	Status     string                  `json:"status,omitempty"` // pending, processing, partially_shipped, shipped, completed, cancelled
+	Items      []OrderItem             `json:"items"`
+	Subtotal   OrderAmount             `json:"subtotal"`
+	Tax        *OrderDetailsTax        `json:"tax,omitempty"`
+	Shipping   *OrderDetailsShipping   `json:"shipping,omitempty"`
+	Discount   *OrderDetailsDiscount   `json:"discount,omitempty"`
+	Expiration *OrderDetailsExpiration `json:"expiration,omitempty"`
+}
+
+type OrderPaymentGateway struct {
+	Type              string      `json:"type"`
+	ConfigurationName string      `json:"configuration_name"`
+	Billdesk          interface{} `json:"billdesk,omitempty"`
+	Razorpay          interface{} `json:"razorpay,omitempty"`
+	Payu              interface{} `json:"payu,omitempty"`
+	Zaakpay           interface{} `json:"zaakpay,omitempty"`
+}
+
+type OrderPaymentLink struct {
+	URI string `json:"uri,omitempty"`
+}
+
+type OrderPaymentBeneficiary struct {
+	Name    string `json:"name,omitempty"`
+	Address string `json:"address,omitempty"`
+}
+
+type OrderPaymentSettings struct {
+	Type           string                   `json:"type"` // e.g. "payment_gateway", "custom", "billdesk", "razorpay", "payu", "zaakpay"
+	PaymentGateway *OrderPaymentGateway     `json:"payment_gateway,omitempty"`
+	PaymentLink    *OrderPaymentLink        `json:"payment_link,omitempty"`
+	Beneficiary    *OrderPaymentBeneficiary `json:"beneficiary,omitempty"`
+}
+
+type OrderDetailsParameters struct {
+	ReferenceID     string                 `json:"reference_id"`
+	Type            string                 `json:"type"` // "digital-goods" or "physical-goods"
+	PaymentType     string                 `json:"payment_type,omitempty"`
+	PaymentSettings []OrderPaymentSettings `json:"payment_settings,omitempty"`
+	Currency        string                 `json:"currency"`
+	TotalAmount     OrderAmount            `json:"total_amount"`
+	Order           OrderInfo              `json:"order"`
+}
+
+type OrderDetailsMessage struct {
+	Header          *InteractiveHeader     `json:"header,omitempty"`
+	BodyText        string                 `json:"body_text,omitempty"`
+	FooterText      string                 `json:"footer_text,omitempty"`
+	ReferenceID     string                 `json:"reference_id"`
+	Type            string                 `json:"type"` // "digital-goods" or "physical-goods"
+	PaymentType     string                 `json:"payment_type,omitempty"`
+	PaymentSettings []OrderPaymentSettings `json:"payment_settings,omitempty"`
+	Currency        string                 `json:"currency"`
+	TotalAmount     OrderAmount            `json:"total_amount"`
+	Order           OrderInfo              `json:"order"`
+}
+
 type InteractiveAction struct {
-	Button     string         `json:"button,omitempty"`     // For list message (main button label)
-	Buttons    []ButtonAction `json:"buttons,omitempty"`    // For quick reply buttons
-	Sections   []ListSection  `json:"sections,omitempty"`   // For list messages
-	Name       string         `json:"name,omitempty"`       // For CTA URL ("cta_url")
-	Parameters interface{}    `json:"parameters,omitempty"` // For CTA URL parameters
+	Button            string         `json:"button,omitempty"`              // For list message (main button label)
+	Buttons           []ButtonAction `json:"buttons,omitempty"`             // For quick reply buttons
+	Sections          []ListSection  `json:"sections,omitempty"`            // For list messages & multi-product
+	CatalogID         string         `json:"catalog_id,omitempty"`          // For single/multi product & order details
+	ProductRetailerID string         `json:"product_retailer_id,omitempty"` // For single product
+	Name              string         `json:"name,omitempty"`                // For CTA URL ("cta_url") or Flow ("flow") or Order Details ("review_and_pay")
+	Parameters        interface{}    `json:"parameters,omitempty"`          // For CTA URL / Flow / Order Details parameters
 }
 
 type InteractiveMessage struct {

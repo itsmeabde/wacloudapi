@@ -185,6 +185,121 @@ func (s *MessagesService) SendInteractive(ctx context.Context, to string, intera
 	return s.Send(ctx, req)
 }
 
+func (s *MessagesService) SendSingleProduct(ctx context.Context, to, catalogID, productRetailerID, body string, opts ...MessageOption) (*SendMessageResponse, error) {
+	interactive := &InteractiveMessage{
+		Type: InteractiveTypeProduct,
+		Body: InteractiveBody{Text: body},
+		Action: InteractiveAction{
+			CatalogID:         catalogID,
+			ProductRetailerID: productRetailerID,
+		},
+	}
+	return s.SendInteractive(ctx, to, interactive, opts...)
+}
+
+func (s *MessagesService) SendMultiProduct(ctx context.Context, to string, req *MultiProductRequest, opts ...MessageOption) (*SendMessageResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("wacloudapi: multi product request cannot be nil")
+	}
+	var sections []ListSection
+	for _, sec := range req.Sections {
+		sections = append(sections, ListSection{
+			Title:        sec.Title,
+			ProductItems: sec.ProductItems,
+		})
+	}
+	interactive := &InteractiveMessage{
+		Type: InteractiveTypeProductList,
+		Body: InteractiveBody{Text: req.BodyText},
+		Action: InteractiveAction{
+			CatalogID: req.CatalogID,
+			Sections:  sections,
+		},
+	}
+	if req.HeaderTitle != "" {
+		interactive.Header = &InteractiveHeader{
+			Type: "text",
+			Text: req.HeaderTitle,
+		}
+	}
+	if req.FooterText != "" {
+		interactive.Footer = &InteractiveFooter{Text: req.FooterText}
+	}
+	return s.SendInteractive(ctx, to, interactive, opts...)
+}
+
+func (s *MessagesService) SendFlow(ctx context.Context, to string, req *FlowMessageRequest, opts ...MessageOption) (*SendMessageResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("wacloudapi: flow request cannot be nil")
+	}
+	action := req.FlowAction
+	if action == "" {
+		action = "navigate"
+	}
+	version := req.FlowMessageVersion
+	if version == "" {
+		version = "3"
+	}
+	flowParams := &FlowParameters{
+		Mode:               req.FlowMode,
+		FlowMessageVersion: version,
+		FlowToken:          req.FlowToken,
+		FlowID:             req.FlowID,
+		FlowCTA:            req.FlowCTA,
+		FlowAction:         action,
+		FlowActionPayload:  req.ActionPayload,
+	}
+	interactive := &InteractiveMessage{
+		Type:   InteractiveTypeFlow,
+		Header: req.Header,
+		Body:   InteractiveBody{Text: req.BodyText},
+		Action: InteractiveAction{
+			Name:       "flow",
+			Parameters: flowParams,
+		},
+	}
+	if req.FooterText != "" {
+		interactive.Footer = &InteractiveFooter{Text: req.FooterText}
+	}
+	return s.SendInteractive(ctx, to, interactive, opts...)
+}
+
+func (s *MessagesService) SendOrderDetails(ctx context.Context, to string, order *OrderDetailsMessage, opts ...MessageOption) (*SendMessageResponse, error) {
+	if order == nil {
+		return nil, fmt.Errorf("wacloudapi: order details cannot be nil")
+	}
+	orderType := order.Type
+	if orderType == "" {
+		orderType = "digital-goods"
+	}
+	params := &OrderDetailsParameters{
+		ReferenceID:     order.ReferenceID,
+		Type:            orderType,
+		PaymentType:     order.PaymentType,
+		PaymentSettings: order.PaymentSettings,
+		Currency:        order.Currency,
+		TotalAmount:     order.TotalAmount,
+		Order:           order.Order,
+	}
+	bodyText := order.BodyText
+	if bodyText == "" {
+		bodyText = "Order details"
+	}
+	interactive := &InteractiveMessage{
+		Type:   InteractiveTypeOrderDetails,
+		Header: order.Header,
+		Body:   InteractiveBody{Text: bodyText},
+		Action: InteractiveAction{
+			Name:       "review_and_pay",
+			Parameters: params,
+		},
+	}
+	if order.FooterText != "" {
+		interactive.Footer = &InteractiveFooter{Text: order.FooterText}
+	}
+	return s.SendInteractive(ctx, to, interactive, opts...)
+}
+
 func (s *MessagesService) MarkAsRead(ctx context.Context, messageID string) error {
 	endpoint := fmt.Sprintf("%s/messages", s.client.config.PhoneNumberID)
 	body := map[string]string{
