@@ -25,6 +25,11 @@ type State struct {
 	templates    map[string]*wacloudapi.TemplateDetails
 	phoneNumbers []wacloudapi.PhoneNumberDetails
 	qrCodes      map[string]*wacloudapi.QRCodeDetails
+
+	msgCounter   int64
+	mediaCounter int64
+	tplCounter   int64
+	qrCounter    int64
 }
 
 // newState initializes a new in-memory State instance.
@@ -43,8 +48,21 @@ func (st *State) Reset() {
 	st.mediaStore = make(map[string]*MockMedia)
 	st.profile = &wacloudapi.BusinessProfile{
 		MessagingProduct: "whatsapp",
+		Vertical:         wacloudapi.VerticalOther,
 	}
 	st.templates = make(map[string]*wacloudapi.TemplateDetails)
-	st.phoneNumbers = make([]wacloudapi.PhoneNumberDetails, 0)
+	st.phoneNumbers = []wacloudapi.PhoneNumberDetails{
+		{
+			ID:                 DefaultPhoneNumberID,
+			DisplayPhoneNumber: "+1 555-0100",
+			VerifiedName:       "Test Business",
+			QualityRating:      "GREEN",
+			CodeVerificationStatus: "VERIFIED",
+		},
+	}
 	st.qrCodes = make(map[string]*wacloudapi.QRCodeDetails)
+	st.msgCounter = 0
+	st.mediaCounter = 0
+	st.tplCounter = 0
+	st.qrCounter = 0
 }

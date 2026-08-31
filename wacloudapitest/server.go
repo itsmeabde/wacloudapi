@@ -33,7 +33,6 @@ type Server struct {
 	mu            sync.RWMutex
 	httpServer    *httptest.Server
 	httpClient    *http.Client
-	mux           *http.ServeMux
 	phoneNumberID string
 	wabaID        string
 	apiVersion    string
@@ -53,7 +52,6 @@ func NewServer(opts ...Option) *Server {
 		appSecret:      DefaultAppSecret,
 		accessToken:    DefaultAccessToken,
 		state:          newState(),
-		mux:            http.NewServeMux(),
 		customHandlers: make(map[string]http.HandlerFunc),
 	}
 
@@ -63,7 +61,19 @@ func NewServer(opts ...Option) *Server {
 		}
 	}
 
-	s.registerRoutes()
+	// Ensure phone numbers in state reflect the configured phone number
+	if s.phoneNumberID != DefaultPhoneNumberID {
+		s.state.mu.Lock()
+		s.state.phoneNumbers = append(s.state.phoneNumbers, wacloudapi.PhoneNumberDetails{
+			ID:                 s.phoneNumberID,
+			DisplayPhoneNumber: "+1 555-0100",
+			VerifiedName:       "Test Business",
+			QualityRating:      "GREEN",
+			CodeVerificationStatus: "VERIFIED",
+		})
+		s.state.mu.Unlock()
+	}
+
 	s.httpServer = httptest.NewServer(s)
 
 	// Configure an in-memory client that routes requests directly to ServeHTTP
@@ -79,6 +89,9 @@ func NewServer(opts ...Option) *Server {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	customHandler, exists := s.customHandlers[r.URL.Path]
+	if !exists {
+		customHandler, exists = s.customHandlers[r.Method+" "+r.URL.Path]
+	}
 	s.mu.RUnlock()
 
 	if exists && customHandler != nil {
@@ -86,16 +99,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.mux.ServeHTTP(w, r)
-}
-
-// registerRoutes registers standard routes on the internal mux.
-func (s *Server) registerRoutes() {
-	// Root or healthcheck route
-	s.mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
+	s.handleGraphAPI(w, r)
 }
 
 // URL returns the base URL of the running mock HTTP server.
@@ -177,4 +181,51 @@ func (s *Server) AccessToken() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.accessToken
+}
+
+// SentMessages returns a copy of all SendMessageRequest payloads recorded by the mock server.
+func (s *Server) SentMessages() []*wacloudapi.SendMessageRequest {
+	s.state.mu.RLock()
+	defer s.state.mu.RUnlock()
+
+	result := make([]*wacloudapi.SendMessageRequest, len(s.state.sentMessages))
+	copy(result, s.state.sentMessages)
+	return result
+}
+
+// LastSentMessage returns the most recent SendMessageRequest payload recorded, or nil if none.
+func (s *Server) LastSentMessage() *wacloudapi.SendMessageRequest {
+	s.state.mu.RLock()
+	defer s.state.mu.RUnlock()
+
+	if len(s.state.sentMessages) == 0 {
+		return nil
+	}
+	return s.state.sentMessages[len(s.state.sentMessages)-1]
+}
+
+// SentMessagesTo returns all SendMessageRequest payloads sent to the specified recipient phone number.
+func (s *Server) SentMessagesTo(phone string) []*wacloudapi.SendMessageRequest {
+	s.state.mu.RLock()
+	defer s.state.mu.RUnlock()
+
+	var result []*wacloudapi.SendMessageRequest
+	for _, msg := range s.state.sentMessages {
+		if msg != nil && msg.To == phone {
+			result = append(result, msg)
+		}
+	}
+	return result
+}
+
+// UploadedMedia returns a copy of the mock server's in-memory media store mapped by media ID.
+func (s *Server) UploadedMedia() map[string]*MockMedia {
+	s.state.mu.RLock()
+	defer s.state.mu.RUnlock()
+
+	result := make(map[string]*MockMedia, len(s.state.mediaStore))
+	for k, v := range s.state.mediaStore {
+		result[k] = v
+	}
+	return result
 }
