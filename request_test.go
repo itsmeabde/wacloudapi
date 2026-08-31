@@ -102,6 +102,37 @@ func TestSendJSONRetryOnRateLimit(t *testing.T) {
 	}
 }
 
+func TestSendJSONRetryOnMetaRateLimitErrorCode(t *testing.T) {
+	var attempts int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count := atomic.AddInt32(&attempts, 1)
+		if count < 2 {
+			w.WriteHeader(http.StatusBadRequest) // Status 400 but Meta rate limit error code 130429
+			_ = json.NewEncoder(w).Encode(GraphErrorWrapper{
+				Error: &APIError{Message: "Rate limit hit", Code: 130429},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer ts.Close()
+
+	c := New("test-token", "123",
+		WithBaseURL(ts.URL),
+		WithRetry(2, 5*time.Millisecond),
+	)
+
+	var res map[string]string
+	err := c.sendJSON(context.Background(), http.MethodGet, "test-retry-meta-code", nil, &res)
+	if err != nil {
+		t.Fatalf("expected success after retry on Meta rate limit code, got: %v", err)
+	}
+	if atomic.LoadInt32(&attempts) != 2 {
+		t.Errorf("expected 2 attempts, got %d", attempts)
+	}
+}
+
 func TestSendJSONRetryOn5xx(t *testing.T) {
 	var attempts int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

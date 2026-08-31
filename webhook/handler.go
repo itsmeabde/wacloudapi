@@ -110,7 +110,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) dispatchEvents(ctx context.Context, payload *Payload) {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
+	onMsg := append([]MessageHandler(nil), h.onMessage...)
+	onText := append([]MessageHandler(nil), h.onTextMessage...)
+	onMedia := append([]MessageHandler(nil), h.onMediaMessage...)
+	onInteractive := append([]MessageHandler(nil), h.onInteractiveMsg...)
+	onStatus := append([]StatusHandler(nil), h.onStatus...)
+	h.mu.RUnlock()
 
 	for _, entry := range payload.Entry {
 		for _, change := range entry.Changes {
@@ -119,33 +124,43 @@ func (h *Handler) dispatchEvents(ctx context.Context, payload *Payload) {
 
 			// Process Messages
 			for _, msg := range val.Messages {
-				for _, fn := range h.onMessage {
-					_ = fn(ctx, msg, meta)
+				for _, fn := range onMsg {
+					if err := fn(ctx, msg, meta); err != nil {
+						h.dispatchError(ctx, err)
+					}
 				}
 
 				if msg.Type == "text" {
-					for _, fn := range h.onTextMessage {
-						_ = fn(ctx, msg, meta)
+					for _, fn := range onText {
+						if err := fn(ctx, msg, meta); err != nil {
+							h.dispatchError(ctx, err)
+						}
 					}
 				}
 
 				if isMediaType(msg.Type) {
-					for _, fn := range h.onMediaMessage {
-						_ = fn(ctx, msg, meta)
+					for _, fn := range onMedia {
+						if err := fn(ctx, msg, meta); err != nil {
+							h.dispatchError(ctx, err)
+						}
 					}
 				}
 
 				if msg.Type == "interactive" {
-					for _, fn := range h.onInteractiveMsg {
-						_ = fn(ctx, msg, meta)
+					for _, fn := range onInteractive {
+						if err := fn(ctx, msg, meta); err != nil {
+							h.dispatchError(ctx, err)
+						}
 					}
 				}
 			}
 
 			// Process Statuses
 			for _, status := range val.Statuses {
-				for _, fn := range h.onStatus {
-					_ = fn(ctx, status, meta)
+				for _, fn := range onStatus {
+					if err := fn(ctx, status, meta); err != nil {
+						h.dispatchError(ctx, err)
+					}
 				}
 			}
 		}
@@ -154,8 +169,9 @@ func (h *Handler) dispatchEvents(ctx context.Context, payload *Payload) {
 
 func (h *Handler) dispatchError(ctx context.Context, err error) {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
-	for _, fn := range h.onError {
+	onError := append([]ErrorHandler(nil), h.onError...)
+	h.mu.RUnlock()
+	for _, fn := range onError {
 		fn(ctx, err)
 	}
 }

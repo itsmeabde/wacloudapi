@@ -1,7 +1,6 @@
 package wacloudapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,32 +24,39 @@ func (s *MediaService) Upload(ctx context.Context, filename string, r io.Reader,
 		return nil, fmt.Errorf("wacloudapi: media reader cannot be nil")
 	}
 
-	bodyBuf := &bytes.Buffer{}
-	writer := multipart.NewWriter(bodyBuf)
+	pr, pw := io.Pipe()
+	writer := multipart.NewWriter(pw)
 
-	if err := writer.WriteField("messaging_product", "whatsapp"); err != nil {
-		return nil, fmt.Errorf("wacloudapi: failed to write multipart field: %w", err)
-	}
-	if err := writer.WriteField("type", mimeType); err != nil {
-		return nil, fmt.Errorf("wacloudapi: failed to write type field: %w", err)
-	}
-
-	part, err := writer.CreateFormFile("file", filename)
-	if err != nil {
-		return nil, fmt.Errorf("wacloudapi: failed to create form file: %w", err)
-	}
-	if _, err := io.Copy(part, r); err != nil {
-		return nil, fmt.Errorf("wacloudapi: failed to copy file content: %w", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("wacloudapi: failed to close multipart writer: %w", err)
-	}
+	go func() {
+		var err error
+		defer func() {
+			if err != nil {
+				pw.CloseWithError(err)
+			} else {
+				pw.Close()
+			}
+		}()
+		if err = writer.WriteField("messaging_product", "whatsapp"); err != nil {
+			return
+		}
+		if err = writer.WriteField("type", mimeType); err != nil {
+			return
+		}
+		part, err2 := writer.CreateFormFile("file", filename)
+		if err2 != nil {
+			err = err2
+			return
+		}
+		if _, err = io.Copy(part, r); err != nil {
+			return
+		}
+		err = writer.Close()
+	}()
 
 	endpoint := fmt.Sprintf("%s/media", s.client.config.PhoneNumberID)
 	url := s.client.buildURL(endpoint)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bodyBuf)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, pr)
 	if err != nil {
 		return nil, fmt.Errorf("wacloudapi: failed to create upload request: %w", err)
 	}

@@ -88,8 +88,8 @@ func (c *Client) sendJSON(ctx context.Context, method, endpoint string, reqBody 
 		// Parse error payload
 		apiErr := c.parseAPIError(resp.StatusCode, respBytes)
 
-		// Check if retryable (429 or 5xx)
-		if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) && attempt < maxAttempts {
+		// Check if retryable (RateLimit or 5xx)
+		if (apiErr.IsRateLimit() || resp.StatusCode >= 500) && attempt < maxAttempts {
 			c.backoff(ctx, attempt)
 			continue
 		}

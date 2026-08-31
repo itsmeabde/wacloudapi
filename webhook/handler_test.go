@@ -282,3 +282,100 @@ func TestIsMediaType(t *testing.T) {
 		}
 	}
 }
+
+func TestHandlerCallbackErrorPropagation(t *testing.T) {
+	h := NewHandler("tok", "")
+
+	expectedErr := errors.New("callback failed")
+	var errCount int32
+	var wg sync.WaitGroup
+	wg.Add(2) // 1 from OnTextMessage, 1 from OnStatus
+
+	h.OnError(func(ctx context.Context, err error) {
+		if errors.Is(err, expectedErr) {
+			atomic.AddInt32(&errCount, 1)
+		}
+	})
+
+	h.OnTextMessage(func(ctx context.Context, msg Message, meta Metadata) error {
+		defer wg.Done()
+		return expectedErr
+	})
+
+	h.OnStatus(func(ctx context.Context, status Status, meta Metadata) error {
+		defer wg.Done()
+		return expectedErr
+	})
+
+	payload := &Payload{
+		Entry: []Entry{
+			{
+				Changes: []Change{
+					{
+						Value: Value{
+							Messages: []Message{
+								{Type: "text", Text: &Text{Body: "hi"}},
+							},
+							Statuses: []Status{
+								{ID: "status-1", Status: "delivered"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	h.dispatchEvents(context.Background(), payload)
+	wg.Wait()
+
+	if atomic.LoadInt32(&errCount) != 2 {
+		t.Errorf("expected 2 errors propagated to OnError, got %d", errCount)
+	}
+}
+
+func TestHandlerNoDeadlockWhenRegisteringInCallback(t *testing.T) {
+	h := NewHandler("tok", "")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	// In callback, register a new handler on h (which acquires h.mu.Lock)
+	h.OnTextMessage(func(ctx context.Context, msg Message, meta Metadata) error {
+		defer wg.Done()
+		h.OnMessage(func(ctx context.Context, msg Message, meta Metadata) error {
+			return nil
+		})
+		return nil
+	})
+
+	payload := &Payload{
+		Entry: []Entry{
+			{
+				Changes: []Change{
+					{
+						Value: Value{
+							Messages: []Message{
+								{Type: "text", Text: &Text{Body: "hi"}},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		h.dispatchEvents(context.Background(), payload)
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock occurred when registering callback inside a handler")
+	}
+}
+

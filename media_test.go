@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -130,6 +131,21 @@ func TestMediaServiceUpload_Errors(t *testing.T) {
 	if apiErr.HTTPStatusCode != http.StatusBadRequest || apiErr.Message != "Invalid file format" {
 		t.Errorf("unexpected api error details: %+v", apiErr)
 	}
+
+	// Test streaming reader error
+	faultyReader := &errReader{err: errors.New("read failure")}
+	_, err = c.Media.Upload(context.Background(), "test.png", faultyReader, "image/png")
+	if err == nil {
+		t.Fatalf("expected error for failing reader, got nil")
+	}
+}
+
+type errReader struct {
+	err error
+}
+
+func (r *errReader) Read(p []byte) (n int, err error) {
+	return 0, r.err
 }
 
 func TestMediaServiceGetAndDownload(t *testing.T) {
