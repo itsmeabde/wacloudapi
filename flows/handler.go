@@ -111,13 +111,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 	bodyBytes, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
 	if err != nil {
 		h.dispatchError(ctx, fmt.Errorf("failed to read request body: %w", err))
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
 	var payload EncryptedPayload
 	if err := json.Unmarshal(bodyBytes, &payload); err != nil {

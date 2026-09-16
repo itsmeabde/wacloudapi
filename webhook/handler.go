@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -94,13 +95,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 	bodyBytes, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
 	if err != nil {
 		h.dispatchError(r.Context(), err)
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
 	if h.appSecret != "" {
 		sig := r.Header.Get("X-Hub-Signature-256")
@@ -125,6 +127,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) dispatchEvents(ctx context.Context, payload *Payload) {
+	defer func() {
+		if r := recover(); r != nil {
+			h.dispatchError(ctx, fmt.Errorf("webhook: panic recovered in event dispatcher: %v", r))
+		}
+	}()
+
 	h.mu.RLock()
 	onMsg := append([]MessageHandler(nil), h.onMessage...)
 	onText := append([]MessageHandler(nil), h.onTextMessage...)

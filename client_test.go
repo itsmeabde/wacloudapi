@@ -83,3 +83,11 @@ func TestOptionsEmptyOrZero(t *testing.T) {
 		t.Errorf("expected MaxRetries 0, got %d", c.config.MaxRetries)
 	}
 }
+
+func TestNewClient_NilOption(t *testing.T) {
+	// Should not panic with nil option
+	c := New("token", "pid", nil, WithAPIVersion("v22.0"), nil)
+	if c.config.APIVersion != "v22.0" {
+		t.Errorf("expected APIVersion v22.0, got %s", c.config.APIVersion)
+	}
+}

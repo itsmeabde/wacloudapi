@@ -283,3 +283,23 @@ func TestMediaServiceDelete(t *testing.T) {
 		t.Errorf("expected error for empty mediaID")
 	}
 }
+
+func TestMediaServiceUpload_ValidationAndCancel(t *testing.T) {
+	// Empty PhoneNumberID
+	cNoPhone := New("test-token", "")
+	_, err := cNoPhone.Media.Upload(context.Background(), "test.png", strings.NewReader("data"), "image/png")
+	if err == nil || !strings.Contains(err.Error(), "phoneNumberID is required") {
+		t.Fatalf("expected error for empty phoneNumberID, got: %v", err)
+	}
+
+	// Canceled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	c := New("test-token", "12345")
+	_, err = c.Media.Upload(ctx, "test.png", strings.NewReader("data"), "image/png")
+	if err == nil {
+		t.Fatalf("expected error for canceled context, got nil")
+	}
+}
+

@@ -118,8 +118,11 @@ func (c *Client) backoff(ctx context.Context, attempt int) {
 	if wait > c.config.RetryWaitMax {
 		wait = c.config.RetryWaitMax
 	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+
 	select {
-	case <-time.After(wait):
+	case <-timer.C:
 	case <-ctx.Done():
 	}
 }

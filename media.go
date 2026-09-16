@@ -24,7 +24,12 @@ func (s *MediaService) Upload(ctx context.Context, filename string, r io.Reader,
 		return nil, fmt.Errorf("wacloudapi: media reader cannot be nil")
 	}
 
+	if s.client.config.PhoneNumberID == "" {
+		return nil, fmt.Errorf("wacloudapi: phoneNumberID is required to upload media")
+	}
+
 	pr, pw := io.Pipe()
+	defer pr.Close()
 	writer := multipart.NewWriter(pw)
 
 	go func() {

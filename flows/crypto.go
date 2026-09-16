@@ -130,6 +130,10 @@ func DecryptRequest(payload *EncryptedPayload, key *rsa.PrivateKey) (*Request, *
 		return nil, nil, fmt.Errorf("failed to create GCM cipher: %w", err)
 	}
 
+	if len(iv) != gcm.NonceSize() {
+		return nil, nil, fmt.Errorf("flows: invalid initial_vector length %d, expected %d", len(iv), gcm.NonceSize())
+	}
+
 	// Decrypt flow data
 	plaintext, err := gcm.Open(nil, iv, encFlowData, nil)
 	if err != nil {
@@ -185,6 +189,10 @@ func EncryptResponse(resp *Response, session *CryptoSession) (string, error) {
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return "", fmt.Errorf("failed to create GCM cipher: %w", err)
+	}
+
+	if len(flippedIV) != gcm.NonceSize() {
+		return "", fmt.Errorf("flows: invalid initial_vector length %d, expected %d", len(flippedIV), gcm.NonceSize())
 	}
 
 	ciphertext := gcm.Seal(nil, flippedIV, plaintext, nil)

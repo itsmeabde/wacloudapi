@@ -18,6 +18,9 @@ func (s *MessagesService) Send(ctx context.Context, req *SendMessageRequest) (*S
 	if req == nil {
 		return nil, fmt.Errorf("wacloudapi: request cannot be nil")
 	}
+	if s.client.config.PhoneNumberID == "" {
+		return nil, fmt.Errorf("wacloudapi: phoneNumberID is required to send messages")
+	}
 	req.MessagingProduct = "whatsapp"
 
 	endpoint := fmt.Sprintf("%s/messages", s.client.config.PhoneNumberID)
@@ -313,7 +316,9 @@ func (s *MessagesService) MarkAsRead(ctx context.Context, messageID string) erro
 func applyMessageOptions(opts ...MessageOption) *messageOptions {
 	o := &messageOptions{}
 	for _, opt := range opts {
-		opt(o)
+		if opt != nil {
+			opt(o)
+		}
 	}
 	return o
 }

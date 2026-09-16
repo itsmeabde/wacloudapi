@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -589,6 +590,52 @@ func TestHandlerOrderAndFlowCallbackErrorPropagation(t *testing.T) {
 	}
 	if atomic.LoadInt32(&flowErrCount) != 1 {
 		t.Errorf("expected 1 flow error propagated, got %d", flowErrCount)
+	}
+}
+
+func TestHandler_PanicRecovery(t *testing.T) {
+	h := NewHandler("token", "secret")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	var recoveredErr error
+	h.OnError(func(ctx context.Context, err error) {
+		recoveredErr = err
+		wg.Done()
+	})
+
+	h.OnTextMessage(func(ctx context.Context, msg Message, meta Metadata) error {
+		panic("simulated callback panic in user code")
+	})
+
+	payload := &Payload{
+		Entry: []Entry{
+			{
+				Changes: []Change{
+					{
+						Value: Value{
+							Messages: []Message{
+								{
+									Type: "text",
+									Text: &Text{Body: "trigger panic"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	h.dispatchEvents(context.Background(), payload)
+	wg.Wait()
+
+	if recoveredErr == nil {
+		t.Fatalf("expected error from panic recovery, got nil")
+	}
+	if !strings.Contains(recoveredErr.Error(), "panic recovered in event dispatcher") {
+		t.Errorf("unexpected error message: %v", recoveredErr)
 	}
 }
 

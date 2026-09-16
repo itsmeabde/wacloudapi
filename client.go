@@ -13,7 +13,9 @@ type Client struct {
 func New(accessToken, phoneNumberID string, opts ...Option) *Client {
 	cfg := defaultConfig(accessToken, phoneNumberID)
 	for _, opt := range opts {
-		opt(cfg)
+		if opt != nil {
+			opt(cfg)
+		}
 	}
 
 	c := &Client{

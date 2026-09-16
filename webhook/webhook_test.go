@@ -21,6 +21,9 @@ func TestVerifyChallenge(t *testing.T) {
 	if w.Code != http.StatusOK || w.Body.String() != "challenge123" {
 		t.Errorf("unexpected response: code %d, body: %s", w.Code, w.Body.String())
 	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/plain" {
+		t.Errorf("expected Content-Type text/plain, got %s", ct)
+	}
 
 	// Invalid token
 	reqInvalid := httptest.NewRequest(http.MethodGet, "/webhook?hub.mode=subscribe&hub.verify_token=wrong-token&hub.challenge=challenge123", nil)

@@ -319,6 +319,23 @@ func TestDecryptRequest_Errors(t *testing.T) {
 		t.Errorf("expected error for invalid IV base64, got nil")
 	}
 
+	// Invalid IV length (8 bytes instead of 12) - should return error safely without panic
+	validEncAESKey, _ := rsa.EncryptOAEP(sha256.New(), rand.Reader, &rsaKey.PublicKey, make([]byte, 16), nil)
+	payload = &EncryptedPayload{
+		EncryptedAESKey:   base64.StdEncoding.EncodeToString(validEncAESKey),
+		EncryptedFlowData: base64.StdEncoding.EncodeToString([]byte("data")),
+		InitialVector:     base64.StdEncoding.EncodeToString([]byte("12345678")), // 8 bytes
+	}
+	if _, _, err := DecryptRequest(payload, rsaKey); err == nil {
+		t.Errorf("expected error for 8-byte IV in DecryptRequest, got nil")
+	}
+
+	// Invalid IV length (16 bytes instead of 12)
+	payload.InitialVector = base64.StdEncoding.EncodeToString([]byte("1234567890123456"))
+	if _, _, err := DecryptRequest(payload, rsaKey); err == nil {
+		t.Errorf("expected error for 16-byte IV in DecryptRequest, got nil")
+	}
+
 	// RSA decryption failure (corrupted ciphertext)
 	payload = &EncryptedPayload{
 		EncryptedAESKey:   base64.StdEncoding.EncodeToString([]byte("not an rsa ciphertext")),
@@ -354,6 +371,16 @@ func TestEncryptResponse_Errors(t *testing.T) {
 	// Empty IV
 	if _, err := EncryptResponse(&Response{Screen: "A"}, &CryptoSession{AESKey: make([]byte, 16), InitialVector: nil}); err == nil {
 		t.Errorf("expected error for empty IV, got nil")
+	}
+
+	// Invalid IV length (8 bytes)
+	if _, err := EncryptResponse(&Response{Screen: "A"}, &CryptoSession{AESKey: make([]byte, 16), InitialVector: make([]byte, 8)}); err == nil {
+		t.Errorf("expected error for 8-byte IV, got nil")
+	}
+
+	// Invalid IV length (16 bytes)
+	if _, err := EncryptResponse(&Response{Screen: "A"}, &CryptoSession{AESKey: make([]byte, 16), InitialVector: make([]byte, 16)}); err == nil {
+		t.Errorf("expected error for 16-byte IV, got nil")
 	}
 }
 

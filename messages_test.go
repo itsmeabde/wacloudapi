@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -785,5 +786,34 @@ func TestMessagesServiceSendCommerceNilRequests(t *testing.T) {
 
 	if _, err := c.Messages.SendOrderDetails(context.Background(), "628123456789", nil); err == nil {
 		t.Error("expected error for nil OrderDetailsMessage, got nil")
+	}
+}
+
+func TestMessagesService_ValidationAndNilOption(t *testing.T) {
+	// Empty PhoneNumberID
+	cNoPhone := New("test-token", "")
+	_, err := cNoPhone.Messages.Send(context.Background(), &SendMessageRequest{To: "123"})
+	if err == nil || !strings.Contains(err.Error(), "phoneNumberID is required") {
+		t.Fatalf("expected error for empty phoneNumberID, got: %v", err)
+	}
+
+	// Nil MessageOption should not panic
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(SendMessageResponse{
+			Messages: []struct {
+				ID            string `json:"id"`
+				MessageStatus string `json:"message_status,omitempty"`
+			}{{ID: "msg-123"}},
+		})
+	}))
+	defer ts.Close()
+
+	c := New("test-token", "phone-1", WithBaseURL(ts.URL))
+	res, err := c.Messages.SendText(context.Background(), "123", "hello", nil, WithPreviewURL(true), nil)
+	if err != nil {
+		t.Fatalf("unexpected error with nil options: %v", err)
+	}
+	if len(res.Messages) == 0 || res.Messages[0].ID != "msg-123" {
+		t.Errorf("unexpected response: %+v", res)
 	}
 }

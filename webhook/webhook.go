@@ -3,6 +3,7 @@ package webhook
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,7 +22,8 @@ func VerifyChallenge(w http.ResponseWriter, r *http.Request, verifyToken string)
 	token := r.URL.Query().Get("hub.verify_token")
 	challenge := r.URL.Query().Get("hub.challenge")
 
-	if mode == "subscribe" && token == verifyToken {
+	if mode == "subscribe" && subtle.ConstantTimeCompare([]byte(token), []byte(verifyToken)) == 1 {
+		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(challenge))
 		return true
